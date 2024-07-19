@@ -1,0 +1,311 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Notifications Example</title>
+    <style>
+        /* General reset */
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        /* Bell Icon Styles */
+        .notification-container {
+            position: relative;
+            display: inline-block;
+        }
+
+        .bell-icon {
+            position: relative;
+            cursor: pointer;
+        }
+
+        .bell-icon img {
+            width: 30px;
+            height: 30px;
+        }
+
+        .notification-count {
+            position: absolute;
+            top: 0;
+            right: 10px;
+            background: red;
+            color: white;
+            border-radius: 50%;
+            padding: 2px 6px;
+            font-size: 12px;
+        }
+
+        .notifications-dropdown {
+            position: absolute;
+            top: 40px;
+            left: 0;
+            width: 250px;
+            background: white;
+            border: 1px solid #ccc;
+            display: none;
+            flex-direction: column;
+            z-index: 1000;
+        }
+
+        .notification-header {
+            background: #333;
+            color: white;
+            padding: 10px;
+            text-align: center;
+        }
+
+        .notification-list {
+            max-height: 300px;
+            overflow-y: auto;
+        }
+
+        .notification-item {
+            padding: 10px;
+            border-bottom: 1px solid #ccc;
+            cursor: pointer;
+            position: relative;
+        }
+
+        .notification-item:hover {
+            background: #f1f1f1;
+        }
+
+        .notification-details {
+            display: none;
+            padding: 10px;
+            background: #eee;
+            border: 1px solid #ccc;
+        }
+
+        .notification-close {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            cursor: pointer;
+            font-size: 16px;
+            color: red;
+        }
+
+        /* Media Queries for responsiveness */
+        @media (max-width: 768px) {
+            .notifications-dropdown {
+                width: 200px;
+            }
+        }
+
+        @media (max-width: 480px) {
+            .notifications-dropdown {
+                width: 150px;
+            }
+
+            .bell-icon img {
+                width: 25px;
+                height: 25px;
+            }
+
+            .notification-count {
+                font-size: 10px;
+            }
+
+            .notification-item {
+                font-size: 12px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <!-- Notification Bell Icon and Dropdown -->
+    <div class="notification-container">
+        <div class="bell-icon" onclick="toggleNotifications()">
+            <img src="https://tlym.online/wp-content/uploads/2024/07/Untitled-design-17.png" alt="Notifications">
+            <span class="notification-count" id="notificationCount">0</span>
+        </div>
+        <div class="notifications-dropdown" id="notificationsDropdown">
+            <div class="notification-header">Notifications</div>
+            <div class="notification-list" id="notificationList">
+                <!-- Notifications will be loaded here dynamically -->
+            </div>
+        </div>
+    </div>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+            // Load notifications and scroll position when the page is loaded
+            loadNotifications();
+            restoreScrollPosition();
+            setInterval(loadNotifications, 60000); // Refresh notifications every 5 seconds
+
+            // Restore notification count from localStorage
+            const savedCount = localStorage.getItem('bell');
+            if (savedCount !== null) {
+                document.getElementById('notificationCount').innerText = savedCount;
+            }
+        });
+
+        window.addEventListener('beforeunload', () => {
+            // Save current scroll position and activity before the page is unloaded
+            saveScrollPosition();
+            updateLastActivity();
+        });
+
+        function toggleNotifications() {
+            const dropdown = document.getElementById('notificationsDropdown');
+            dropdown.style.display = dropdown.style.display === 'block' ? 'none' : 'block';
+        }
+
+        function loadNotifications() {
+            const lastActivity = localStorage.getItem('lastActivity') || new Date().toISOString();
+
+            fetch(`http://localhost:3000/notifications?lastActivity=${encodeURIComponent(lastActivity)}`)
+                .then(response => response.json())
+                .then(notifications => {
+                    const notificationList = document.getElementById('notificationList');
+                    notificationList.innerHTML = '';
+
+                    let unreadCount = 0;
+                    let readNotifications = JSON.parse(localStorage.getItem('readNotifications')) || [];
+                    let dismissedNotifications = JSON.parse(localStorage.getItem('dismissedNotifications')) || [];
+
+                    notifications.forEach(notification => {
+                        if (dismissedNotifications.includes(notification.id)) {
+                            return; // Skip dismissed notifications
+                        }
+
+                        const item = document.createElement('div');
+                        item.className = 'notification-item';
+                        item.innerText = `${notification.message} - ${new Date(notification.timestamp).toLocaleTimeString()}`;
+
+                        const details = document.createElement('div');
+                        details.className = 'notification-details';
+                        details.innerText = `Full Message: ${notification.message}\nReceived at: ${new Date(notification.timestamp).toLocaleString()}`;
+
+                        const closeButton = document.createElement('span');
+                        closeButton.className = 'notification-close';
+                        closeButton.innerText = '×';
+                        closeButton.addEventListener('click', (e) => {
+                            e.stopPropagation(); // Prevent event from bubbling up to parent elements
+                            item.style.display = 'none'; // Hide the notification item
+                            dismissNotification(notification.id);
+                        });
+
+                        item.appendChild(closeButton);
+                        item.appendChild(details);
+                        item.addEventListener('click', () => {
+                            const isDisplayed = details.style.display === 'block';
+                            details.style.display = isDisplayed ? 'none' : 'block';
+                            if (!notification.read && !readNotifications.includes(notification.id)) {
+                                markAsRead(notification.id);
+                                readNotifications.push(notification.id);
+                                localStorage.setItem('readNotifications', JSON.stringify(readNotifications));
+                            }
+                        });
+
+                        notificationList.appendChild(item);
+
+                        if (!notification.read && !readNotifications.includes(notification.id)) {
+                            unreadCount++;
+                        }
+                    });
+
+                    document.getElementById('notificationCount').innerText = unreadCount;
+                    // Save the notification count to localStorage
+                    localStorage.setItem('bell', unreadCount);
+                })
+                .catch(error => console.error('Error fetching notifications:', error));
+        }
+
+        function markAsRead(notificationId) {
+            fetch(`http://localhost:3000/notifications/${notificationId}`, {
+                method: 'PATCH',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ read: true })
+            })
+            .then(response => response.json())
+            .then(() => {
+                updateNotificationCount(-1); // Decrement count by 1
+                updateLocalStorage(notificationId, 'read'); // Update local storage
+            })
+            .catch(error => console.error('Error marking notification as read:', error));
+        }
+
+        function dismissNotification(notificationId) {
+            let dismissedNotifications = JSON.parse(localStorage.getItem('dismissedNotifications')) || [];
+            if (!dismissedNotifications.includes(notificationId)) {
+                dismissedNotifications.push(notificationId);
+                localStorage.setItem('dismissedNotifications', JSON.stringify(dismissedNotifications));
+            }
+            updateNotificationCount(-1); // Decrement count by 1
+            updateLocalStorage(notificationId, 'dismissed'); // Update local storage
+        }
+
+        function isNotificationDismissed(notificationId) {
+            let dismissedNotifications = JSON.parse(localStorage.getItem('dismissedNotifications')) || [];
+            return dismissedNotifications.includes(notificationId);
+        }
+
+        function updateNotificationCount(change) {
+            let notificationCount = parseInt(document.getElementById('notificationCount').innerText, 10);
+            notificationCount = Math.max(notificationCount + change, 0); // Update count and ensure it's not negative
+            document.getElementById('notificationCount').innerText = notificationCount;
+            // Save the updated notification count to localStorage
+            localStorage.setItem('bell', notificationCount);
+        }
+
+        function updateLocalStorage(notificationId, action) {
+            if (action === 'read') {
+                let readNotifications = JSON.parse(localStorage.getItem('readNotifications')) || [];
+                if (!readNotifications.includes(notificationId)) {
+                    readNotifications.push(notificationId);
+                    localStorage.setItem('readNotifications', JSON.stringify(readNotifications));
+                }
+            } else if (action === 'dismissed') {
+                let dismissedNotifications = JSON.parse(localStorage.getItem('dismissedNotifications')) || [];
+                if (!dismissedNotifications.includes(notificationId)) {
+                    dismissedNotifications.push(notificationId);
+                    localStorage.setItem('dismissedNotifications', JSON.stringify(dismissedNotifications));
+                }
+            }
+        }
+
+        function saveScrollPosition() {
+            const scrollPosition = window.scrollY || window.pageYOffset;
+            localStorage.setItem('scrollPosition', scrollPosition);
+        }
+
+        function restoreScrollPosition() {
+            const scrollPosition = localStorage.getItem('scrollPosition');
+            if (scrollPosition !== null) {
+                window.scrollTo(0, parseInt(scrollPosition, 10));
+            }
+        }
+
+        function updateLastActivity() {
+            const now = new Date();
+            localStorage.setItem('lastActivity', now.toISOString());
+        }
+
+        function createReport() {
+            const now = new Date();
+            const lastActivity = localStorage.getItem('lastActivity');
+            const notificationCount = document.getElementById('notificationCount').innerText;
+            const report = {
+                timestamp: now.toISOString(),
+                notificationCount: notificationCount,
+                lastActivity: lastActivity ? new Date(lastActivity).toLocaleString() : 'No last activity recorded'
+            };
+
+            let reports = JSON.parse(localStorage.getItem('reports')) || [];
+            reports.push(report);
+            localStorage.setItem('reports', JSON.stringify(reports));
+
+            console.log('Report created:', report);
+        }
+    </script>
+</body>
+</html>
